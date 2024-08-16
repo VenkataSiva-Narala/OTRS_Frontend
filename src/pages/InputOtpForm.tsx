@@ -76,7 +76,7 @@ const InputOTPForm: React.FC<InputOTPFormProps> = ({ userName, id }) => {
               <FormItem>
                 <FormLabel>One-Time Password</FormLabel>
                 <FormControl>
-                  <InputOTP maxLength={6} {...field}>
+                  <InputOTP type="password" maxLength={6} {...field}>
                     <InputOTPGroup>
                       <InputOTPSlot index={0} />
                       <InputOTPSlot index={1} />

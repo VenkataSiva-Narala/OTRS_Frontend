@@ -1,10 +1,9 @@
 import axios, { AxiosResponse } from "axios";
 import { getToken } from "./authApi";
 
-export const getTicketDetails = async (id: any): Promise<AxiosResponse> => {
-  return axios.post(
-    `http://10.101.104.140:8090/ticket_details/${id}`,
-    {},
+export const getUsers = async (): Promise<AxiosResponse> => {
+  return axios.get(
+    "http://10.101.104.140:8090/user_group_list",
     {
       headers: {
         Authorization: getToken(),
@@ -12,3 +11,4 @@ export const getTicketDetails = async (id: any): Promise<AxiosResponse> => {
     }
   );
 };
+

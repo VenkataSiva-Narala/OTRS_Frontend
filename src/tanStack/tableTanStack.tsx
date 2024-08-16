@@ -21,6 +21,8 @@ import { Tickets } from "@/lib/types";
 import { getTickets } from "@/components/api/dashboardApi";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
+import { removeToken } from "@/components/api/authApi";
+import { pickupApi } from "@/components/api/pickupApi";
 
 export type DensityState = "sm" | "md" | "lg";
 export interface DensityTableState {
@@ -40,12 +42,12 @@ export interface DensityInstance {
 // Use declaration merging to add our new feature APIs and state types to TanStack Table's existing types.
 declare module "@tanstack/react-table" {
   //merge our new feature's state with the existing table state
-  interface TableState extends DensityTableState {}
+  interface TableState extends DensityTableState { }
   //merge our new feature's options with the existing table options
   interface TableOptionsResolved<TData extends RowData>
-    extends DensityOptions {}
+    extends DensityOptions { }
   //merge our new feature's instance APIs with the existing table instance APIs
-  interface Table<TData extends RowData> extends DensityInstance {}
+  interface Table<TData extends RowData> extends DensityInstance { }
   // if you need to add cell instance APIs...
   // interface Cell<TData extends RowData, TValue> extends DensityCell
   // if you need to add row instance APIs...
@@ -115,6 +117,13 @@ export const DensityFeature: TableFeature<any> = {
 
 //app code
 function App() {
+  const [pickupStatus, setPickupStatus] = useState<{ [key: string]: string }>(
+    {}
+  );
+  const [data, _setData] = React.useState<Tickets[]>([]);
+  const [density, setDensity] = React.useState<DensityState>("md");
+  const [clicked, setClicked] = useState<{ [key: string]: boolean }>({});
+  const [Pick, setPick] = useState(false);
   const navigate = useNavigate();
   const columns = React.useMemo<ColumnDef<Tickets>[]>(
     () => [
@@ -124,25 +133,25 @@ function App() {
         cell: (info) => info.getValue(),
         footer: (props) => props.column.id,
       },
+      // {
+      //   accessorKey: "customer_id",
+      //   header: "Customer ID",
+      //   cell: (info) => info.getValue(),
+      //   footer: (props) => props.column.id,
+      // },
       {
-        accessorKey: "customer_id",
-        header: "Customer ID",
-        cell: (info) => info.getValue(),
+        accessorKey: "customer_name",
+        header: () => "Customer Name",
         footer: (props) => props.column.id,
       },
-      //   {
-      //     accessorKey: "customer_name",
-      //     header: () => "Customer Name",
-      //     footer: (props) => props.column.id,
-      //   },
       {
         accessorKey: "type",
-        header: () => <span>type</span>,
+        header: () => <span>Type</span>,
         footer: (props) => props.column.id,
       },
       {
         accessorKey: "raised_at",
-        header: "Profile Progress",
+        header: "Raised At",
         footer: (props) => props.column.id,
       },
       {
@@ -151,8 +160,18 @@ function App() {
         footer: (props) => props.column.id,
       },
       {
+        accessorKey: "sla_due",
+        header: "SLA-Due",
+        footer: (props) => props.column.id,
+      },
+      {
         accessorKey: "description",
         header: "Description",
+        footer: (props) => props.column.id,
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
         footer: (props) => props.column.id,
       },
       {
@@ -160,11 +179,11 @@ function App() {
         header: "Severity",
         footer: (props) => props.column.id,
       },
-      {
-        accessorKey: "priority",
-        header: "Priority",
-        footer: (props) => props.column.id,
-      },
+      // {
+      //   accessorKey: "priority",
+      //   header: "Priority",
+      //   footer: (props) => props.column.id,
+      // },
       //   {
       //     accessorKey: "data",
       //     header: "Data",
@@ -181,29 +200,26 @@ function App() {
         footer: (props) => props.column.id,
       },
       {
-        accessorKey: "status",
-        header: "Status",
-        footer: (props) => props.column.id,
-      },
-      //   {
-      //     accessorKey: "file_paths",
-      //     header: "File Paths",
-      //     footer: (props) => props.column.id,
-      //   },
-      {
         accessorKey: "canPick",
         header: "Can Pick",
-        cell: () =>
-          clicked ? (
-            <p className="bg-green-600">picked up</p>
-          ) : (
+        cell: (info) => {
+          const ticketId = info.row.original.ticket_id;
+          const canPick = info.row.original.canPick; // assuming canPick is a boolean indicating whether the ticket can be picked up
+          const isPicked = clicked[ticketId]; // checks if the ticket has already been picked
+
+          return (
             <Button
-              className="p-2 bg-violet-600"
-              onClick={() => setClicked(true)}
+              className={`p-2 ${canPick && !isPicked
+                ? "bg-violet-600 hover:bg-yellow-400"
+                : "bg-gray-400"
+                } font-thin text-sm`}
+              disabled={!canPick || isPicked} // disable button if cannot pick or already picked
+              onClick={() => handlePickup(ticketId)}
             >
-              Pick up
+              {isPicked ? "Picked" : "Pick up"}
             </Button>
-          ),
+          );
+        },
         footer: (props) => props.column.id,
       },
       //   {
@@ -217,12 +233,9 @@ function App() {
       //     footer: (props) => props.column.id,
       //   },
     ],
-    []
+    [pickupStatus]
   );
 
-  const [data, _setData] = React.useState<Tickets[]>([]);
-  const [density, setDensity] = React.useState<DensityState>("md");
-  const [clicked, setClicked] = useState(false);
   const table = useReactTable({
     _features: [DensityFeature], //pass our custom feature to the table to be instantiated upon creation
     columns,
@@ -238,16 +251,48 @@ function App() {
     onDensityChange: setDensity, //using the new onDensityChange option, TS is still happy :)
   });
 
+  const handlePickup = async (id: number) => {
+    console.log("clicked");
+
+    try {
+      const response = await pickupApi(id);
+
+      setPickupStatus((prev) => ({ ...prev, [id]: response.data.msg }));
+      setClicked((prev) => ({ ...prev, [id]: true }));
+      setPick(false); 
+    } catch (error) {
+      console.log(error);
+      if (error.response && error.response.status === 401) {
+        removeToken();
+        alert("Session expired! Please login again.");
+        navigate("/login");
+      } else {
+        alert("Something went wrong");
+      }
+    }
+  };
+
   async function handleTicketsFetch() {
     try {
       const response = await getTickets();
-      console.log(response.data.message);
 
       _setData(response.data.ticketId);
+      console.log(data);
+
+      console.log("datadatadata", response.data.ticketId);
+
+      response.data.ticketId.map((value, index) => {
+
+        setPick(value.canPick);
+      });
     } catch (error) {
       console.log(error);
-      if(error.response.status === 401 ){
+      if (error.response && error.response.status === 401) {
+        removeToken();
+        alert("Session expired ! ,login again");
         navigate("/login");
+      } else {
+        alert("Something Went Wrong");
       }
     }
   }
@@ -265,94 +310,98 @@ function App() {
         Toggle Density
       </button> */}
       <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="border-b">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr className="" key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  return (
-                    <th
-                      className="font-normal text-left border"
-                      key={header.id}
-                      colSpan={header.colSpan}
-                      style={{
-                        //using our new feature
-                        padding:
-                          density === "sm"
-                            ? "4px"
-                            : density === "md"
-                            ? "8px"
-                            : "16px",
-                        transition: "padding 0.2s",
-                      }}
-                    >
-                      <div
-                        {...{
-                          className: header.column.getCanSort()
-                            ? "cursor-pointer select-none"
-                            : "",
-                          onClick: header.column.getToggleSortingHandler(),
-                        }}
-                      >
-                        {flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                        {{
-                          asc: " 🔼",
-                          desc: " 🔽",
-                        }[header.column.getIsSorted() as string] ?? null}
-                      </div>
-
-                      {header.column.getCanFilter() ? (
-                        <div className="mt-1">
-                          <Filter column={header.column} table={table} />
-                        </div>
-                      ) : null}
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => {
-              return (
-                <tr className=" hover:bg-violet-600" key={row.id}>
-                  {row.getVisibleCells().map((cell) => {
+        <div className="block min-w-[1700px]">
+          {" "}
+          <table className="w-full">
+            <thead className="border-b">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr className="" key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => {
                     return (
-                      <td
-                        key={cell.id}
+                      <th
+                        className="font-normal border"
+                        key={header.id}
+                        colSpan={header.colSpan}
                         style={{
                           //using our new feature
                           padding:
                             density === "sm"
                               ? "4px"
                               : density === "md"
-                              ? "8px"
-                              : "16px",
+                                ? "8px"
+                                : "16px",
                           transition: "padding 0.2s",
                         }}
-                        onClick={() => {
-                          cell.column.id === "ticket_id" &&
-                            navigate(`/idPage/${cell.getValue()}`);
-                        }}
-                        className="border"
                       >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </td>
+                        <div
+                          {...{
+                            className: header.column.getCanSort()
+                              ? "cursor-pointer select-none"
+                              : "",
+                            onClick: header.column.getToggleSortingHandler(),
+                          }}
+                        >
+                          {flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                          {{
+                            asc: " 🔼",
+                            desc: " 🔽",
+                          }[header.column.getIsSorted() as string] ?? null}
+                        </div>
+
+                        {header.column.getCanFilter() ? (
+                          <div className="mt-1">
+                            <Filter column={header.column} table={table} />
+                          </div>
+                        ) : null}
+                      </th>
                     );
                   })}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => {
+                return (
+                  <tr className=" hover:bg-violet-600 whitespace-nowrap" key={row.id}>
+                    {row.getVisibleCells().map((cell) => {
+                      return (
+                        <td
+                          key={cell.id}
+                          style={{
+                            textAlign: "center",
+                            fontSize: "13px",
+                            fontWeight: "normal",
+                            padding:
+                              density === "sm"
+                                ? "4px"
+                                : density === "md"
+                                  ? "8px"
+                                  : "16px",
+                            transition: "padding 0.2s",
+                          }}
+                          onClick={() => {
+                            cell.column.id === "ticket_id" &&
+                              navigate(`/idPage/${cell.getValue()}`);
+                          }}
+                          className="border cursor-pointer"
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-
       <div className="flex items-center gap-2 mt-4">
         <button
           className="border rounded p-1"
